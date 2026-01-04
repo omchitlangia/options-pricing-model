@@ -20,6 +20,14 @@ Part 7 — Role of Volatility
 Higher volatility increases the option value because higher uncertainity means higher odds of landing in-the-money. “Options reward uncertainty, not direction”, means that uncertainity in any direction will be better than chopping around the strike price, as the drawdown is limited to the premium paid and profits are theoritically unlimited. Convexity comes in the picture for the same reason, as on an option, no one can lose more than the premium paid for the option, but they can make much larger profits, making the payoffs asymmetrical in nature.
 
 Part 8 — Limiting & Sanity Cases
-    T→0, implies that the option is almost expired making the option price = 0.
+    T→0, implies that the option is almost expired making the option price = max(spot - strike, 0)
     σ→0, implies that there is no volatility => no randomness, hence making the option price = spot - discounted strike.
-    Deep ITM Call
+    Deep ITM Call -> The options sells at a premium, spot - strike discounted
+    Deep OTM Call -> The price goes to 0.
+    Increasing volatility -> Higher price than usual, as the uncertainity is higher and higher expected payoff due to convexity.
+
+Part 9 — What Black–Scholes Gets Right and What It Misses
+BS is still useful despite unrealistic assumptions, because it helps price the options without taking into belief any individual opinion or realistic market probabilities. It sets a benchmark by using the no-arbitrage model and a consistent pricing system using replication. The assumption that I feel is the most problematic is transaction costs, that creates infinite rebalancing and continuous trading hours. I expect BS to misprice American options, options during stressed markets, deep OTM options and short/long dated options.
+
+Part 10 — Key Takeaways from Step 2
+I understood what is options and what are the key parameters used to price it. I learned about different types of options and their implemnetations too. The intuition that surprised me the most would be creating the same payoffs using replication and also the logic used behind the put call parity. This is a strong baseline model and it creates a solid no-arbitrage foundation for the upcoming computational models.
