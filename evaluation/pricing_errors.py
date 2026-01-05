@@ -7,7 +7,7 @@ from models.black_scholes import black_scholes_call
 INPUT_PATH = "data/processed/spy_options_clean.csv"
 OUTPUT_PATH = "data/processed/spy_priced_bs.csv"
 
-RISK_FREE_RATE = 0.05
+RISK_FREE_RATE = 0.036 # current 3 months T-bill rate
 SIGMA = 0.1132   # historical volatility from STEP 3.3
 
 # -------------------------------
