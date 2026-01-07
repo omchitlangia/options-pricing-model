@@ -9,7 +9,7 @@ Section 3 — Why volatility is the key unknown?
 Volatility is the key unknown because it is dependent on many factors like news, wars etc. and is not constant. Under risk-neutral pricing, uncertainty is summarized by volatility or the standard deviation because options reward uncertainty and not direction. The move should be big enough or distant from the mean, even if the mean is exactly the same. More or less, every other variable is known (like risk-free rate, strike price, expiry date, and the spot price), but volatility/variance is unknown and everything comes down to that.
 
 Section 4 — When Black–Scholes will fail?
-i. If the volatility is not constant
+i. If the volatility is not constant.
 ii. If the trading hours are not continous and there are gap up or gap down openings.
 iii. Market frictions such as latency, liquidity constraints, and discrete trading prevent continuous rebalancing of the replicating portfolio, violating the no-arbitrage framework assumed by the model.
 iv. If transaction costs exist, there will be infinite rebalancings.
