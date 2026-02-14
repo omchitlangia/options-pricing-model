@@ -9,3 +9,7 @@ Implied volatility plotted against moneyness exhibits a clear smile-shaped patte
 Finally, implied volatility versus maturity shows a downward-sloping term structure, with higher implied volatility for shorter maturities. This indicates that near-term uncertainty is priced more aggressively by the market, further violating the constant-volatility assumption of Black–Scholes.
 
 Together, these visual diagnostics reinforce the numerical findings and confirm that systematic pricing errors arise from volatility being a function of strike and maturity rather than a single constant parameter.
+
+Binomial pricing errors are tightly centered around zero across maturities, with no systematic maturity-dependent bias, confirming numerical convergence and correct implied volatility calibration.
+
+Binomial pricing error dispersion is slightly higher near at-the-money options, consistent with higher Gamma and curvature sensitivity, but remains economically negligible, indicating stable binomial convergence across strikes.
