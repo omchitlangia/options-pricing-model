@@ -1,0 +1,398 @@
+# Project Context — Options Pricing Model
+
+## 1. Project Overview
+
+This repository implements a quantitative options pricing research framework built to answer a
+single core question:
+
+> **How accurately do classical option pricing models price liquid US equity options, and where
+> do their assumptions break down?**
+
+The project works through three classical pricing engines — Black–Scholes, Binomial Tree, and
+Monte Carlo — applies them to real market data from SPY (S&P 500 ETF), and systematically
+evaluates where and how each model fails. The evaluation is built around implied volatility:
+by extracting the volatility the market implies and feeding it back into each model, the project
+isolates whether pricing inaccuracies come from the model structure or from the volatility input.
+
+The research proceeds step-by-step: collect real option quotes → clean the data → price with
+each model → compute errors → extract implied volatility → reprice with implied vol → observe
+the volatility smile.
+
+---
+
+## 2. Pricing Models Implemented
+
+### Black–Scholes (`models/black_scholes.py`)
+
+Closed-form pricing formula for European call options. Inputs: spot price `S`, strike `K`,
+time to maturity `T` (in years), risk-free rate `r`, volatility `sigma`. Uses SciPy's
+`norm.cdf` for the normal CDF. Handles edge cases: `sigma=0` returns intrinsic value,
+`T=0` returns immediate payoff.
+
+Key formula:
+`C = S * N(d1) - K * exp(-rT) * N(d2)`
+`d1 = [ln(S/K) + (r + 0.5σ²)T] / (σ√T)`
+`d2 = d1 − σ√T`
+
+### Binomial Tree (`models/binomial.py`)
+
+Cox-Ross-Rubinstein (CRR) binomial tree for European calls. Defaults to 100 steps (200 used
+in evaluation for higher accuracy). Builds terminal prices using up/down factors
+`u = exp(σ√dt)`, `d = 1/u`, then performs backward induction with the risk-neutral
+probability `p = (exp(r*dt) - d) / (u - d)`. Converges to Black–Scholes as steps → ∞.
+
+### Monte Carlo (`models/monte_carlo.py`)
+
+Risk-neutral GBM terminal simulation for European calls. Draws `n_sims=50000` standard
+normal shocks and simulates terminal stock price:
+`S_T = S * exp((r − 0.5σ²)T + σ√T * Z)`
+Payoffs are `max(S_T − K, 0)`, discounted at the risk-free rate. Uses `seed=42` for
+reproducibility. Only simulates the terminal price (not full paths) since European option
+payoffs depend only on `S_T`.
+
+### Greeks (`models/greeks.py`)
+
+Analytic Black–Scholes Greeks for call options:
+- **Delta**: `N(d1)` — sensitivity to spot price
+- **Gamma**: `N'(d1) / (S * σ * √T)` — rate of change of delta
+- **Vega**: `S * N'(d1) * √T` — sensitivity to volatility (per unit vol change)
+- **Theta**: decay of option value with time
+
+---
+
+## 3. Data Pipeline
+
+The current pipeline is sequential and operates on SPY options only:
+
+```
+scripts/pull_spy_options.py
+    → data/raw/spy_options_raw.csv
+
+scripts/clean_spy_options.py
+    → data/processed/spy_options_clean.csv
+
+evaluation/pricing_errors.py          (BS pricing with constant historical vol)
+    → data/processed/spy_priced_bs.csv
+
+evaluation/compute_implied_vol.py      (IV extraction via bisection)
+    → data/processed/spy_with_implied_vol.csv
+
+evaluation/price_binomial.py           (Binomial pricing with implied vol)
+    → data/processed/spy_priced_binomial.csv
+
+evaluation/price_mc.py                 (Monte Carlo pricing with implied vol)
+    → data/processed/spy_priced_mc.csv
+
+evaluation/compute_greeks.py           (Analytic Greeks using implied vol)
+    → data/processed/spy_with_greeks.csv
+
+evaluation/error_analysis.py           (Error breakdown by moneyness and maturity)
+evaluation/binomial_error_analysis.py
+evaluation/model_comparison.py
+evaluation/implied_vol_analysis.py
+
+evaluation/visual_diagnostics.py       (Scatter plots)
+evaluation/model_comparison_plots.py
+evaluation/greek_analysis.py
+```
+
+---
+
+## 4. Current Dataset
+
+**Source:** `data/raw/spy_options_raw.csv`
+**Filtered to:** `data/processed/spy_options_clean.csv` and downstream files
+**Size:** ~355 options (after cleaning)
+
+**Raw columns from yfinance:**
+`contractSymbol`, `lastTradeDate`, `strike`, `lastPrice`, `bid`, `ask`, `change`,
+`percentChange`, `volume`, `openInterest`, `impliedVolatility`, `inTheMoney`,
+`contractSize`, `currency`, `expiry`, `dte`, `spot`
+
+**Added during cleaning:**
+- `mid = (bid + ask) / 2`
+- `moneyness = spot / strike`
+- `T = dte / 365.0`
+
+**Scope constraints:**
+- Single underlying: SPY only
+- DTE window: 7–45 days (near-term only)
+- Strike filter: moneyness between 0.85 and 1.15
+- Liquidity filter: `volume >= 10` OR `openInterest >= 100`
+
+**Limitations:**
+- Only one ticker — no cross-sectional variation
+- Short-dated options only — cannot study term structure
+- ~355 rows is too small for regression or ML modeling
+- No surface structure: insufficient strike × maturity coverage
+
+---
+
+## 5. Feature Engineering
+
+**Currently computed features (in `scripts/clean_spy_options.py` and `evaluation/pricing_errors.py`):**
+
+| Feature | Formula | Purpose |
+|---|---|---|
+| `mid` | `(bid + ask) / 2` | Market reference price for all models |
+| `moneyness` | `spot / strike` | Relative strike position; >1 = ITM call |
+| `T` | `dte / 365.0` | Time to maturity in years |
+| `bs_price` | Black–Scholes call | Model price under constant historical vol |
+| `error` | `bs_price - mid` | Raw pricing error (model minus market) |
+| `abs_error` | `|error|` | Absolute error magnitude |
+| `rel_error` | `error / mid` | Relative error as fraction of price |
+| `implied_vol` | bisection solver | Volatility that makes BS price = market price |
+| `binomial_price` | Binomial call | Price using implied vol in CRR tree |
+| `binomial_error` | `binomial_price - mid` | Binomial pricing residual |
+| `mc_price` | Monte Carlo call | Price using implied vol in GBM simulation |
+| `mc_error` | `mc_price - mid` | Monte Carlo pricing residual |
+| `delta`, `gamma`, `vega`, `theta` | Analytic BS Greeks | Sensitivity measures using implied vol |
+
+---
+
+## 6. Evaluation Framework
+
+### Black–Scholes error analysis (`evaluation/pricing_errors.py`, `evaluation/error_analysis.py`)
+
+BS is priced first with a constant historical volatility (`sigma = 0.1132`, computed from
+90-day SPY log returns). Errors `bs_price - mid` are then segmented:
+
+- **By moneyness bins:** OTM (0.85–0.95), ATM (0.95–1.05), ITM (1.05–1.15)
+- **By maturity bins:** Short (0–5%), Medium (5–10%), Long (>10% of a year)
+
+Pattern observed: systematic underpricing for ATM/ITM options and for longer maturities —
+driven by the flat volatility assumption.
+
+### Implied volatility calibration
+
+The bisection solver in `volatility/implied_vol.py` solves for `σ*` such that
+`BS(S, K, T, r, σ*) = market_price`. Bounds: `[1e-6, 3.0]`. Tolerance `1e-6`,
+up to 100 iterations. Rows where IV cannot be solved (e.g. price below intrinsic) are
+dropped. After calibration, pricing errors for all three models collapse near zero —
+confirming that pricing accuracy is dominated by the volatility specification.
+
+### Cross-model comparison (`evaluation/model_comparison.py`)
+
+After IV calibration, BS, Binomial, and Monte Carlo prices are compared. All three agree
+closely, confirming that the numerical pricing method matters far less than the volatility
+input.
+
+---
+
+## 7. Visualizations
+
+**Generated in `evaluation/visual_diagnostics.py` and `evaluation/model_comparison_plots.py`:**
+
+| Plot | Key finding |
+|---|---|
+| BS error vs moneyness | Systematic underpricing for ATM/ITM; near-zero for deep OTM |
+| BS error vs maturity | Error grows with time; flat vol assumption breaks down |
+| Implied vol vs moneyness | Clear **volatility smile** — IV higher for OTM and ITM strikes |
+| Implied vol vs maturity | **Downward term structure** — short-dated options have higher IV |
+| Binomial error vs moneyness | Near-zero residuals post-IV calibration; slight spread at ATM |
+| Binomial error vs maturity | No systematic bias; confirms numerical convergence |
+| All three models vs moneyness | BS, Binomial, MC errors virtually identical after IV calibration |
+| All three models vs maturity | Same conclusion — model choice is secondary to vol input |
+
+**Generated in `evaluation/greek_analysis.py`:**
+
+| Plot | Content |
+|---|---|
+| Delta vs moneyness | S-curve from ~0 (deep OTM) to ~1 (deep ITM) |
+| Gamma vs moneyness | Bell-shaped peak at ATM |
+| Vega vs moneyness | Peak near ATM; larger for longer maturities |
+| Vega vs maturity | Vega increases with √T |
+| Theta vs maturity | Theta becomes less negative as maturity increases |
+
+**Generated in `evaluation/mc_path_plot.py`:**
+
+50 simulated GBM paths over 1 year (252 steps) illustrating the diffusion and spread of
+risk-neutral price trajectories.
+
+---
+
+## 8. Current Limitations
+
+1. **Single underlying (SPY only):** No cross-sectional variation in spot price, dividend
+   yield, or volatility regime. Cannot study how IV surface shape varies across different
+   assets.
+
+2. **Narrow DTE window (7–45 days):** Short-dated options only. The full term structure of
+   implied volatility — from very short to 12+ months — is not captured.
+
+3. **Small dataset (~355 rows):** Far too small for regression analysis, ML feature
+   importance, or surface interpolation. Models trained on 355 rows will overfit.
+
+4. **Narrow moneyness range (0.85–1.15):** Deep OTM and deep ITM options (where the smile
+   is most pronounced) are excluded. Cannot model the full smile curvature.
+
+5. **No surface structure:** True volatility surface modeling requires a grid of
+   (strike × maturity) combinations. The current dataset has only 3–5 expiries and a
+   limited strike range — insufficient to fit or visualize a 2D surface.
+
+6. **No cross-asset comparison:** The volatility smile shape varies significantly between
+   assets (e.g., SPY vs TSLA vs AAPL). Single-asset analysis cannot reveal how different
+   risk profiles manifest in the IV surface.
+
+---
+
+## 9. Next Research Phase
+
+The immediate next phase is to build a **large multi-asset options dataset** (~2000–8000 rows)
+covering multiple tickers (SPY, QQQ, AAPL, NVDA, TSLA) and a wide range of strikes and
+maturities (up to 12 expiries per ticker).
+
+This expanded dataset enables:
+
+- **Volatility surface visualization:** Plot IV as a 2D surface across strike and maturity
+  dimensions for each underlying.
+
+- **Smile modeling:** Fit parametric or interpolated models (SVI, SABR, or polynomial) to
+  the observed smile shape.
+
+- **Regression and machine learning:** Train models that predict IV from observable features
+  (moneyness, time to maturity, ticker). With 2000+ rows, cross-validation and
+  generalization become meaningful.
+
+- **Option pricing reconstruction:** Verify that a model trained on IV predictions can
+  reproduce market prices with lower error than constant-vol Black–Scholes.
+
+- **Cross-asset surface comparison:** Compare how the IV surface shape differs between a
+  low-vol ETF (SPY) and high-vol single stocks (TSLA, NVDA).
+
+The pipeline for this phase is implemented in `scripts/collect_options_surface.py`,
+`processing/clean_options_dataset.py`, `processing/compute_surface_features.py`, and
+`processing/compute_implied_vols.py`. The resulting dataset is stored under
+`data/processed/options_surface/options_surface_dataset.csv`.
+
+---
+
+## 10. Volatility Surface Exploration (Step 8.2)
+
+**Script:** `evaluation/vol_surface_exploration.py`
+**Plots:** `plots/vol_surface/`
+
+### Dataset
+
+The multi-asset surface dataset contains **2061 options** across five tickers:
+SPY (519), TSLA (616), QQQ (391), NVDA (299), AAPL (236).
+Each ticker has 7–8 expiry dates covering maturities from 1 day to ~60 days (0.003–0.164 years).
+Visualizations filter to the liquid trading range: moneyness ∈ [0.70, 1.40] and IV < 2.50,
+retaining **1672 rows**. The remaining 389 rows contain deep-ITM options from TSLA and AAPL
+(moneyness up to 78) and 85 rows where the bisection solver hit its cap of 3.0.
+
+---
+
+### Observed Smile Structure
+
+The IV vs moneyness scatter (`iv_vs_moneyness.png`) reveals a clear **volatility smile**
+present across all five assets:
+
+- **IV is lowest near ATM (moneyness ≈ 1.0)** and rises on both the OTM and ITM wings,
+  forming a U-shaped or skewed-smile pattern.
+- **Single-stock IV levels are substantially higher than index IV:** TSLA and NVDA carry
+  mean IV of ~0.59–0.70 in the 0.90–1.10 moneyness range, while SPY and QQQ sit at
+  0.24–0.36 — roughly half the level. This reflects the diversification premium in index
+  options and the idiosyncratic risk embedded in single-stock options.
+- **The smile steepens sharply on the ITM wing (1.10–1.20):** mean IV across all tickers
+  reaches 0.63 in this bucket versus 0.30 in the 0.90–1.00 bucket. SPY ITM options
+  (moneyness 1.10–1.20) exhibit a mean IV of 0.83 — more than double their ATM level.
+- The smile shape is **asymmetric**: the OTM wing (0.80–0.90) carries mean IV of 0.50,
+  while the comparable ITM wing (1.10–1.20) carries 0.63, suggesting a rightward tilt
+  consistent with demand for upside participation via calls.
+
+**Moneyness bucket summary (all tickers, plot dataset):**
+
+| Moneyness bucket | Mean IV | Interpretation |
+|---|---|---|
+| 0.80–0.90 | 0.500 | OTM wing — elevated, fear of spot decline |
+| 0.90–1.00 | 0.305 | Near ATM — lowest IV in the dataset |
+| 1.00–1.10 | 0.394 | ITM — IV begins rising |
+| 1.10–1.20 | 0.626 | Deep ITM — sharp IV increase |
+
+---
+
+### Term Structure of Volatility
+
+The IV vs maturity scatter (`iv_vs_maturity.png`) shows **maturity clustering** rather
+than a smooth continuous term structure, driven by the discrete set of expiry dates:
+
+- **Short-dated options (T < 0.05 years, under 18 days) carry the highest mean IV at 0.42.**
+  This is consistent with near-term event risk and the well-documented volatility term
+  structure decay.
+- The relationship is **not monotonically declining**: medium-maturity buckets
+  (0.05–0.15 and 0.15–0.30 years) show mean IV of 0.47 and 0.46 respectively —
+  nearly equal, suggesting the term structure has flattened at these horizons.
+- **SPY and QQQ have no options beyond T = 0.047 years** in this dataset, limiting
+  term structure analysis for indices. Single stocks (AAPL, NVDA, TSLA) extend to 0.164
+  years and show a clear downward slope: AAPL declines from 0.55 (short) to 0.34 (long).
+- The maturity density is heavily concentrated in the short end: 1284 of 1672 filtered
+  rows fall in the 0–0.05 year bucket. This imbalance must be accounted for in any
+  surface model.
+
+**Maturity bucket summary (all tickers, plot dataset):**
+
+| Maturity bucket | Mean IV | n |
+|---|---|---|
+| 0–0.05 years | 0.419 | 1284 |
+| 0.05–0.15 years | 0.470 | 280 |
+| 0.15–0.30 years | 0.462 | 108 |
+
+---
+
+### 3D Surface Geometry
+
+The 3D scatter (`iv_surface_3d.png`) confirms that the volatility surface is not flat
+in either dimension simultaneously:
+
+- The surface **rises in both the moneyness and maturity directions** away from the
+  ATM short-dated corner.
+- Distinct **asset-level separation** is visible along the IV axis: TSLA and NVDA occupy
+  the high-IV region (0.4–1.0+) while SPY and QQQ cluster at lower levels (0.2–0.5).
+- The surface geometry is **nonlinear and irregular** — no simple planar or quadratic
+  surface would fit the combined cross-asset data.
+
+---
+
+### Implications for Modeling the Surface
+
+These observations have direct consequences for the next modeling phase:
+
+1. **A single constant volatility is insufficient** — confirmed across both the moneyness
+   and maturity dimensions. This was already established for SPY in the single-asset phase;
+   the multi-asset dataset makes it universal.
+
+2. **A per-ticker intercept (fixed effect) is necessary.** TSLA and NVDA IV levels are
+   roughly 2–3× higher than SPY and QQQ for similar moneyness and maturity. Any model
+   that pools all tickers without an asset-level parameter will produce large systematic
+   errors.
+
+3. **Nonlinear moneyness terms are required.** The smile is clearly curved, not linear.
+   Moneyness alone cannot capture the U-shape; `moneyness²` or `|log_moneyness|` terms
+   are needed.
+
+4. **Interaction between moneyness and maturity must be modeled.** The smile steepness
+   and curvature change with time to expiry — the surface is not separable into
+   independent smile and term structure components. The `moneyness_T_interaction` feature
+   already in the dataset addresses this directly.
+
+5. **The short-maturity concentration (76% of data in T < 0.05)** means the model will
+   be trained primarily on near-term behavior. Predictions for longer maturities will
+   rely on extrapolation and should be treated cautiously.
+
+6. **Machine learning models (random forest, gradient boosting, neural network) are
+   natural candidates** given the nonlinearity and cross-asset variation. A linear
+   regression baseline should be built first to measure the benefit of nonlinear methods.
+
+---
+
+### Next Step: Step 8.3 — Volatility Surface Modeling
+
+The surface exploration confirms that the data has sufficient richness and structure to
+train predictive models. The recommended modeling sequence is:
+
+1. **Baseline:** Linear regression of IV on `moneyness`, `sqrt_T`, ticker dummies
+2. **Polynomial extension:** Add `moneyness²`, `moneyness_T_interaction`
+3. **Nonlinear model:** Gradient boosted trees or random forest on all surface features
+4. **Evaluation:** Compare models by RMSE and R² on a held-out test set
+5. **Reconstruction test:** Use predicted IV in Black–Scholes and compare to market prices
