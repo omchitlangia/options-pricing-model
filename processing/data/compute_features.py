@@ -18,7 +18,7 @@ Input:  data/processed/options_surface/options_dataset_clean.csv
 Output: data/processed/options_surface/options_dataset_features.csv
 
 Run from the project root:
-    python processing/compute_surface_features.py
+    python -m processing.data.compute_features
 """
 
 import math

@@ -1,5 +1,5 @@
 import pandas as pd
-from volatility.implied_vol import implied_vol_bisection
+from models.iv.implied_vol_solver import implied_vol_bisection
 
 # -------------------------------
 # Configuration

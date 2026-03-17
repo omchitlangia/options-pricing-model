@@ -20,19 +20,13 @@ Input:  data/processed/options_surface/options_dataset_features.csv
 Output: data/processed/options_surface/options_surface_dataset.csv
 
 Run from the project root:
-    python processing/compute_implied_vols.py
+    python -m processing.data.compute_implied_vols
 """
 
 import math
-import sys
-from pathlib import Path
 import pandas as pd
 
-# Add project root to sys.path so the volatility package is importable
-# regardless of which directory this script is run from.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from volatility.implied_vol import implied_vol_bisection
+from models.iv.implied_vol_solver import implied_vol_bisection
 
 
 # -----------------------------------------------------------------------

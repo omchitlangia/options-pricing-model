@@ -15,7 +15,7 @@ Input:  data/raw/options_large/options_dataset_raw.csv
 Output: data/processed/options_surface/options_dataset_clean.csv
 
 Run from the project root:
-    python processing/clean_options_dataset.py
+    python -m processing.data.clean_options_dataset
 """
 
 import pandas as pd

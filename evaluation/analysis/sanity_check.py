@@ -1,5 +1,5 @@
-from models.black_scholes import black_scholes_call
-from models.monte_carlo import monte_carlo_call_price
+from models.pricing.black_scholes import black_scholes_call
+from models.pricing.monte_carlo import monte_carlo_call_price
 
 print("Sanity Tests")
 print("T → 0:", black_scholes_call(100, 100, 1e-6, 0.05, 0.2))

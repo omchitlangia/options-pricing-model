@@ -1,5 +1,5 @@
 import pandas as pd
-from models.black_scholes import black_scholes_call
+from models.pricing.black_scholes import black_scholes_call
 
 # -------------------------------
 # Configuration

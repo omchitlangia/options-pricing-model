@@ -1,5 +1,5 @@
 import pandas as pd
-from models.binomial import binomial_call_price
+from models.pricing.binomial import binomial_call_price
 
 INPUT_PATH = "data/processed/spy_with_implied_vol.csv"
 OUTPUT_PATH = "data/processed/spy_priced_binomial.csv"

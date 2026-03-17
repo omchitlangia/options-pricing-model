@@ -1,4 +1,4 @@
-from models.black_scholes import black_scholes_call
+from models.pricing.black_scholes import black_scholes_call
 
 def implied_vol_bisection(
     market_price,
