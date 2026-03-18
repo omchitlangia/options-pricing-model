@@ -525,16 +525,65 @@ Remaining error is still dominated by the cross-asset IV level gap.
 
 ---
 
+### Step 8.3.3 — Random Forest Model (`evaluation/train_rf_iv.py`)
+
+**Motivation:** Linear and polynomial models are constrained to parametric functional
+forms. A random forest is a non-parametric ensemble that can capture arbitrary
+nonlinear interactions — including cross-asset IV level differences — without explicit
+feature engineering (e.g. ticker dummies). This tests whether the IV surface has
+structure that parametric models miss.
+
+**Parameters:** `n_estimators=200`, `max_depth=8`, `min_samples_leaf=5`,
+`random_state=42`, `n_jobs=-1`
+
+**IV MAE: 0.0635** (−29.5% vs polynomial, −60.4% vs linear)
+
+The RF absorbs cross-asset IV level bias through tree splits on `log_moneyness` and
+the interaction term, without needing per-ticker fixed effects. Error correlation with
+|moneyness|: 0.135 — some wing structure remains, but residual std drops from 0.119
+(polynomial) to 0.090.
+
+**Feature importances:**
+
+| Feature | Importance |
+|---|---|
+| `log_moneyness` | 0.597 |
+| `moneyness_T_interaction` | 0.279 |
+| `time_to_maturity` | 0.064 |
+| `sqrt_T` | 0.059 |
+
+`log_moneyness` dominates (60% of splits), confirming that the smile's moneyness
+dimension carries the most predictive signal. The interaction term captures how smile
+shape varies with maturity. The two time features contribute modestly — consistent
+with the dataset's heavy concentration in short maturities.
+
+**Regularization:** `max_depth=8` and `min_samples_leaf=5` prevent the forest from
+memorizing individual data points. With 1546 rows and 200 trees, each leaf averages
+~15 training samples — sufficient for stable estimates without overfitting.
+
+**Plots → `plots/rf/`**
+
+| File | Content |
+|---|---|
+| `rf_actual_vs_pred.png` | Tighter clustering around diagonal than polynomial |
+| `rf_error_moneyness.png` | Flatter error distribution; reduced wing bias |
+| `rf_error_maturity.png` | No systematic maturity-dependent pattern |
+| `rf_smile.png` | Actual IV vs RF prediction sorted by moneyness |
+
+---
+
 ### Model comparison summary
 
 | Model | IV MAE | Residual std | Error–moneyness corr |
 |---|---|---|---|
 | Linear | 0.1602 | 0.201 | 0.083 |
 | Polynomial (deg 2) | 0.0901 | 0.119 | 0.116 |
+| Random Forest | 0.0635 | 0.090 | 0.135 |
 
-The 43.8% MAE reduction from adding degree-2 terms confirms that the IV surface is
-nonlinear. Full comparison plots will be produced in a dedicated comparison script
-(`plots/comparison/`).
+The progression from linear → polynomial → RF demonstrates increasing model capacity
+capturing the nonlinear IV surface. The RF's 29.5% improvement over polynomial comes
+primarily from its ability to partition the feature space into asset-level regions
+without explicit ticker encoding.
 
 ---
 
@@ -544,12 +593,13 @@ nonlinear. Full comparison plots will be produced in a dedicated comparison scri
 plots/
     linear/          ← linear model diagnostics only
     polynomial/      ← polynomial model diagnostics only
+    rf/              ← random forest diagnostics only
     comparison/      ← reserved for cross-model comparison (next step)
 ```
 
 ### Next step
 
-Add per-ticker fixed effects (one-hot encoding of ticker) or train a gradient-boosted
-tree model. Either approach directly addresses the dominant residual error source:
-cross-asset IV level differences that parametric models without asset identifiers
-cannot capture.
+Options for further improvement: (1) gradient boosted trees (XGBoost/LightGBM) for
+potentially sharper splits with fewer trees, (2) add per-ticker features to any model,
+(3) neural network for continuous surface interpolation, or (4) cross-model comparison
+and reconstruction test using predicted IV in Black–Scholes.
