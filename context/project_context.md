@@ -396,3 +396,99 @@ train predictive models. The recommended modeling sequence is:
 3. **Nonlinear model:** Gradient boosted trees or random forest on all surface features
 4. **Evaluation:** Compare models by RMSE and R² on a held-out test set
 5. **Reconstruction test:** Use predicted IV in Black–Scholes and compare to market prices
+
+---
+
+## 11. IV Surface Filtering Pipeline (Step 8.3 — Data Curation)
+
+**Script:** `pipeline/filter_iv_dataset.py`
+**Input:** `data/processed/options_surface/options_surface_dataset.csv` (2061 rows)
+**Output:** `data/processed/options_surface/options_surface_filtered.csv` (1546 rows)
+
+### Design principle
+
+Filters are classified as either *data errors / microstructure noise* (hard remove) or
+*legitimate market structure* (keep). The volatility smile, skew, and wing elevations
+are real features — over-filtering would artificially flatten the surface.
+
+### Filter sequence and results
+
+| Step | Filter | Removed | Rationale |
+|---|---|---|---|
+| Sanity | bid ≤ 0, ask ≤ 0, bid > ask, mid ≤ 0, mid < $0.01 | 0 | Dataset already clean |
+| Liquidity | relative_spread > 1.0; OR zero volume AND zero OI AND spread > 0.3 | 0 | No spread violations; only 1 dead quote with low spread |
+| Maturity | time_to_maturity < 0.003 (~1 day) | 66 | Near-expiry gamma explosion makes IV numerically unstable |
+| Moneyness | moneyness outside (0.7, 1.3) | 449 | Outside surface modeling range; deep-ITM rows dominated by solver-capped IV = 3.0 |
+| IV | implied_vol < 0.01 or ≥ 3.0 (solver cap) | 0 | Already caught by moneyness filter; acts as safety net |
+
+**Total removed: 515 rows (25.0%)**
+
+### Soft signals (flags, not removals)
+
+- `wide_spread_flag`: relative_spread > 0.3 — 67 rows; elevated quote uncertainty
+- `short_maturity_flag`: T < 0.02 (~7 days) — 496 rows; valid data, handle carefully
+- `wing_flag`: moneyness < 0.85 or > 1.15 — 313 rows; smile wings, must be retained
+
+### Weighting scheme
+
+`weight = (1 / (1 + relative_spread)) × exp(−|log_moneyness|)`, normalized to [0, 1].
+
+- Base term rewards tight spreads (high market maker confidence)
+- ATM boost anchors surface level without discarding wing rows
+- Mean weight 0.875; minimum 0.489 (widest-spread wing options)
+
+### IV statistics after filtering
+
+| Stat | Value |
+|---|---|
+| Mean IV | 0.413 |
+| Median IV | 0.355 |
+| Std IV | 0.210 |
+| Min IV | 0.145 |
+| Max IV (winsorized) | 1.301 |
+
+IV is winsorized at the 99th percentile (1.30) for modeling stability.
+Original values preserved in `implied_vol_raw`.
+
+### Rows per ticker after filtering
+
+SPY 469 · TSLA 376 · QQQ 350 · NVDA 177 · AAPL 174
+
+---
+
+## 12. Linear Baseline Model (Step 8.3.1)
+
+**Script:** `evaluation/train_linear_iv.py`
+**Input:** `data/processed/options_surface/options_surface_filtered.csv`
+**Split:** 80/20 train/test, random_state = 42
+
+### Features and target
+
+| Feature | Role |
+|---|---|
+| `log_moneyness` | Captures relative strike position on log scale |
+| `time_to_maturity` | Linear maturity effect |
+| `sqrt_T` | Nonlinear maturity effect (vol scales with √T) |
+| `moneyness_T_interaction` | Joint moneyness-maturity dependency |
+| **`implied_vol`** | **Target** |
+
+### Results
+
+**IV MAE: 0.2625**
+
+| Feature | Coefficient |
+|---|---|
+| log_moneyness | +1.169 |
+| time_to_maturity | +4.184 |
+| sqrt_T | −1.941 |
+| moneyness_T_interaction | −0.309 |
+| intercept | +0.708 |
+
+### Interpretation
+
+The MAE of 0.26 is the baseline error for all subsequent models to beat. The large
+error is expected: the surface is nonlinear and cross-asset IV level differences
+(TSLA/NVDA ~2–3× higher than SPY/QQQ) cannot be captured without ticker fixed effects.
+The positive `log_moneyness` coefficient confirms the smile (IV rises away from ATM).
+The competing signs on `time_to_maturity` (+4.18) and `sqrt_T` (−1.94) together
+approximate the nonlinear term structure decay.
