@@ -474,21 +474,25 @@ SPY 469 · TSLA 376 · QQQ 350 · NVDA 177 · AAPL 174
 
 ### Results
 
-**IV MAE: 0.2625**
+**IV MAE: 0.1602**  *(trained on filtered dataset — `options_surface_filtered.csv`)*
 
 | Feature | Coefficient |
 |---|---|
-| log_moneyness | +1.169 |
-| time_to_maturity | +4.184 |
-| sqrt_T | −1.941 |
-| moneyness_T_interaction | −0.309 |
-| intercept | +0.708 |
+| log_moneyness | +0.486 |
+| time_to_maturity | +5.736 |
+| sqrt_T | −2.015 |
+| moneyness_T_interaction | −1.259 |
+| intercept | +0.606 |
 
 ### Interpretation
 
-The MAE of 0.26 is the baseline error for all subsequent models to beat. The large
-error is expected: the surface is nonlinear and cross-asset IV level differences
-(TSLA/NVDA ~2–3× higher than SPY/QQQ) cannot be captured without ticker fixed effects.
-The positive `log_moneyness` coefficient confirms the smile (IV rises away from ATM).
-The competing signs on `time_to_maturity` (+4.18) and `sqrt_T` (−1.94) together
-approximate the nonlinear term structure decay.
+The MAE of 0.16 is the baseline error for all subsequent models to beat. Switching from
+the raw dataset to the filtered dataset reduced MAE from 0.26 to 0.16 — confirming that
+the removed rows (near-expiry options and deep-ITM solver artifacts) were adding noise,
+not signal. The error that remains is structural: the surface is nonlinear and cross-asset
+IV level differences (TSLA/NVDA ~2–3× higher than SPY/QQQ) cannot be captured without
+ticker fixed effects. The positive `log_moneyness` coefficient confirms the smile
+(IV rises away from ATM). The competing signs on `time_to_maturity` (+5.74) and
+`sqrt_T` (−2.02) together approximate the nonlinear term structure decay. The strengthened
+`moneyness_T_interaction` coefficient (−1.26 vs −0.31 previously) shows that the
+interaction term is now better identified after noisy rows are removed.
