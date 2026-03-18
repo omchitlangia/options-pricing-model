@@ -456,43 +456,100 @@ SPY 469 · TSLA 376 · QQQ 350 · NVDA 177 · AAPL 174
 
 ---
 
-## 12. Linear Baseline Model (Step 8.3.1)
+## 12. Step 8.3 — Model Development (Structured)
 
-**Script:** `evaluation/train_linear_iv.py`
+### Design rationale: separation of concerns
+
+Each model lives in its own script with no cross-dependencies. This enforces:
+- Independent reproducibility: either script runs standalone without the other
+- Fair comparison: both scripts use identical data loading, split parameters
+  (`test_size=0.20, random_state=42`), and feature set, so MAE differences reflect
+  only model capacity, not implementation differences
+- Clean extension path: adding a new model (e.g. gradient boosted trees) means
+  adding one file, not modifying an existing one
+
+---
+
+### Linear baseline — `evaluation/train_linear_iv.py`
+
 **Input:** `data/processed/options_surface/options_surface_filtered.csv`
-**Split:** 80/20 train/test, random_state = 42
-
-### Features and target
-
-| Feature | Role |
-|---|---|
-| `log_moneyness` | Captures relative strike position on log scale |
-| `time_to_maturity` | Linear maturity effect |
-| `sqrt_T` | Nonlinear maturity effect (vol scales with √T) |
-| `moneyness_T_interaction` | Joint moneyness-maturity dependency |
-| **`implied_vol`** | **Target** |
-
-### Results
-
-**IV MAE: 0.1602**  *(trained on filtered dataset — `options_surface_filtered.csv`)*
+**Split:** 80/20, random_state = 42
 
 | Feature | Coefficient |
 |---|---|
-| log_moneyness | +0.486 |
-| time_to_maturity | +5.736 |
-| sqrt_T | −2.015 |
-| moneyness_T_interaction | −1.259 |
+| `log_moneyness` | +0.486 |
+| `time_to_maturity` | +5.736 |
+| `sqrt_T` | −2.015 |
+| `moneyness_T_interaction` | −1.259 |
 | intercept | +0.606 |
 
-### Interpretation
+**IV MAE: 0.1602**
 
-The MAE of 0.16 is the baseline error for all subsequent models to beat. Switching from
-the raw dataset to the filtered dataset reduced MAE from 0.26 to 0.16 — confirming that
-the removed rows (near-expiry options and deep-ITM solver artifacts) were adding noise,
-not signal. The error that remains is structural: the surface is nonlinear and cross-asset
-IV level differences (TSLA/NVDA ~2–3× higher than SPY/QQQ) cannot be captured without
-ticker fixed effects. The positive `log_moneyness` coefficient confirms the smile
-(IV rises away from ATM). The competing signs on `time_to_maturity` (+5.74) and
-`sqrt_T` (−2.02) together approximate the nonlinear term structure decay. The strengthened
-`moneyness_T_interaction` coefficient (−1.26 vs −0.31 previously) shows that the
-interaction term is now better identified after noisy rows are removed.
+The dominant error is not smile curvature (error correlation with |moneyness|: 0.083)
+but cross-asset IV level bias: TSLA/NVDA carry 2–3× higher IV than SPY/QQQ at the
+same moneyness and maturity, which a pooled linear model cannot distinguish.
+Residual std: 0.201.
+
+**Plots → `plots/linear/`**
+
+| File | Content |
+|---|---|
+| `linear_actual_vs_pred.png` | Actual vs predicted IV; diagonal shows systematic underprediction at high IV |
+| `linear_error_moneyness.png` | Residuals vs moneyness; level bias is spread-uniform, not U-shaped |
+| `linear_error_maturity.png` | Residuals vs time to maturity |
+| `linear_smile.png` | Actual IV vs linear fit sorted by moneyness |
+
+---
+
+### Polynomial model — `evaluation/train_polynomial_iv.py`
+
+**Degree:** 2 via `sklearn.preprocessing.PolynomialFeatures(degree=2, include_bias=False)`
+**Feature expansion:** 4 raw features → 14 degree-2 terms (squares + pairwise interactions)
+**Fit on train only**; transform applied to test to prevent data leakage.
+
+**IV MAE: 0.0901** (−43.8% vs linear)
+
+The squared and cross terms absorb nonlinear smile curvature and the term structure's
+√T scaling. Error correlation with |moneyness|: 0.116 — some curvature residual remains,
+suggesting the smile is not fully captured by degree-2 terms alone. Residual std: 0.119.
+Remaining error is still dominated by the cross-asset IV level gap.
+
+**Plots → `plots/polynomial/`**
+
+| File | Content |
+|---|---|
+| `polynomial_actual_vs_pred.png` | Tighter scatter around diagonal vs linear |
+| `polynomial_error_moneyness.png` | Reduced but non-zero curvature residual |
+| `polynomial_error_maturity.png` | Residuals vs time to maturity |
+| `polynomial_smile.png` | Actual IV vs polynomial fit sorted by moneyness |
+
+---
+
+### Model comparison summary
+
+| Model | IV MAE | Residual std | Error–moneyness corr |
+|---|---|---|---|
+| Linear | 0.1602 | 0.201 | 0.083 |
+| Polynomial (deg 2) | 0.0901 | 0.119 | 0.116 |
+
+The 43.8% MAE reduction from adding degree-2 terms confirms that the IV surface is
+nonlinear. Full comparison plots will be produced in a dedicated comparison script
+(`plots/comparison/`).
+
+---
+
+### Plot directory structure
+
+```
+plots/
+    linear/          ← linear model diagnostics only
+    polynomial/      ← polynomial model diagnostics only
+    comparison/      ← reserved for cross-model comparison (next step)
+```
+
+### Next step
+
+Add per-ticker fixed effects (one-hot encoding of ticker) or train a gradient-boosted
+tree model. Either approach directly addresses the dominant residual error source:
+cross-asset IV level differences that parametric models without asset identifiers
+cannot capture.
