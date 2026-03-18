@@ -572,6 +572,56 @@ memorizing individual data points. With 1546 rows and 200 trees, each leaf avera
 
 ---
 
+### Step 8.3.4 — XGBoost Model (`evaluation/train_xgb_iv.py`)
+
+**Motivation:** Random Forest uses bagging — each tree is trained independently on a
+bootstrap sample. XGBoost uses gradient boosting — trees are built sequentially, with
+each new tree fitting the residuals of the ensemble so far. This sequential error
+correction can capture finer structure in the IV surface, particularly in high-IV
+regions where RF averaging smooths over sharp transitions.
+
+**Parameters:** `n_estimators=300`, `learning_rate=0.05`, `max_depth=4`,
+`subsample=0.8`, `colsample_bytree=0.8`, `reg_lambda=1.0`, `random_state=42`
+
+**IV MAE: 0.0556** (−12.4% vs RF, −38.3% vs polynomial, −65.3% vs linear)
+
+XGBoost achieves the lowest MAE across all models. The sequential residual correction
+refines predictions in regions where RF's parallel averaging leaves residual bias.
+Error correlation with |moneyness| drops to 0.112 (from 0.135 in RF), indicating
+better wing capture. Residual std: 0.082.
+
+**Feature importances:**
+
+| Feature | Importance |
+|---|---|
+| `log_moneyness` | 0.317 |
+| `time_to_maturity` | 0.308 |
+| `sqrt_T` | 0.239 |
+| `moneyness_T_interaction` | 0.136 |
+
+Unlike RF where `log_moneyness` dominated at 60%, XGBoost distributes importance more
+evenly across all four features. This reflects the sequential learning: early trees
+capture the dominant moneyness signal, and later trees exploit the time-related features
+to correct remaining residuals. The more balanced distribution suggests XGBoost extracts
+more information from each feature dimension.
+
+**Regularization:** `max_depth=4` (shallower than RF's 8) keeps individual trees as
+weak learners, relying on the ensemble for expressiveness. `subsample=0.8` and
+`colsample_bytree=0.8` introduce stochastic regularization. `reg_lambda=1.0` adds L2
+penalty on leaf weights. No signs of overfitting: residual std (0.082) is well below
+the training signal magnitude.
+
+**Plots → `plots/xgb/`**
+
+| File | Content |
+|---|---|
+| `xgb_actual_vs_pred.png` | Tightest clustering around diagonal across all models |
+| `xgb_error_moneyness.png` | Flatter error than RF; reduced wing bias |
+| `xgb_error_maturity.png` | No systematic maturity-dependent pattern |
+| `xgb_smile.png` | Actual IV vs XGB prediction sorted by moneyness |
+
+---
+
 ### Model comparison summary
 
 | Model | IV MAE | Residual std | Error–moneyness corr |
@@ -579,11 +629,12 @@ memorizing individual data points. With 1546 rows and 200 trees, each leaf avera
 | Linear | 0.1602 | 0.201 | 0.083 |
 | Polynomial (deg 2) | 0.0901 | 0.119 | 0.116 |
 | Random Forest | 0.0635 | 0.090 | 0.135 |
+| XGBoost | 0.0556 | 0.082 | 0.112 |
 
-The progression from linear → polynomial → RF demonstrates increasing model capacity
-capturing the nonlinear IV surface. The RF's 29.5% improvement over polynomial comes
-primarily from its ability to partition the feature space into asset-level regions
-without explicit ticker encoding.
+The progression linear → polynomial → RF → XGBoost demonstrates monotonic improvement
+as model capacity increases. The largest single jump is linear → polynomial (−43.8%),
+capturing the smile's quadratic structure. RF → XGBoost yields a further −12.4%,
+with boosting's sequential correction refining the surface fit.
 
 ---
 
@@ -594,12 +645,13 @@ plots/
     linear/          ← linear model diagnostics only
     polynomial/      ← polynomial model diagnostics only
     rf/              ← random forest diagnostics only
+    xgb/             ← XGBoost diagnostics only
     comparison/      ← reserved for cross-model comparison (next step)
 ```
 
 ### Next step
 
-Options for further improvement: (1) gradient boosted trees (XGBoost/LightGBM) for
-potentially sharper splits with fewer trees, (2) add per-ticker features to any model,
-(3) neural network for continuous surface interpolation, or (4) cross-model comparison
-and reconstruction test using predicted IV in Black–Scholes.
+Options for further work: (1) add per-ticker features to capture cross-asset IV level
+differences explicitly, (2) neural network for continuous surface interpolation,
+(3) cross-model comparison script with unified plots, or (4) reconstruction test —
+feed predicted IV into Black–Scholes and compare repriced options to market prices.
