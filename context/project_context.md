@@ -622,19 +622,56 @@ the training signal magnitude.
 
 ---
 
+### Step 8.3.5 — Neural Network Model (`evaluation/train_nn_iv.py`)
+
+**Motivation:** Tree-based models (RF, XGBoost) partition the feature space into
+axis-aligned rectangles. A neural network learns a continuous, differentiable mapping
+from features to IV — potentially producing smoother surface interpolation. This tests
+whether a fundamentally different model family can compete on a small dataset (n=1546).
+
+**Architecture:** MLP with two hidden layers (64, 32), ReLU activation, Adam optimizer,
+`learning_rate_init=0.001`, `max_iter=500`. Features scaled with `StandardScaler`
+(fit on training data only). ~2,273 trainable parameters.
+
+**IV MAE: 0.0743** — worse than RF (0.0635) and XGBoost (0.0556)
+
+The MLP converged in only 27 iterations, suggesting early convergence to a suboptimal
+solution. Error correlation with |moneyness| is 0.237 — substantially higher than all
+other models — indicating the NN struggles most with deep OTM/ITM wings. Residual std:
+0.103.
+
+**Why the NN underperforms:** With only 1546 samples and 4 features, tree-based models
+have a structural advantage: they can partition the moneyness-maturity space into
+fine-grained bins and memorize local IV levels. The MLP must learn the entire surface
+through a smooth parametric function, and the limited data provides insufficient signal
+for the network to discover the complex nonlinear relationships that trees capture via
+splits. Additionally, the volatility surface has sharp transitions (e.g., near-ATM
+curvature changes) that ReLU networks need more depth or width to approximate well.
+
+**Plots → `plots/nn/`**
+
+| File | Content |
+|---|---|
+| `nn_actual_vs_pred.png` | Wider scatter around diagonal than tree models |
+| `nn_error_moneyness.png` | Visible moneyness-dependent error pattern |
+| `nn_error_maturity.png` | Mild maturity-dependent structure |
+| `nn_smile.png` | Actual IV vs NN prediction sorted by moneyness |
+
+---
+
 ### Model comparison summary
 
 | Model | IV MAE | Residual std | Error–moneyness corr |
 |---|---|---|---|
 | Linear | 0.1602 | 0.201 | 0.083 |
 | Polynomial (deg 2) | 0.0901 | 0.119 | 0.116 |
+| Neural Network (MLP) | 0.0743 | 0.103 | 0.237 |
 | Random Forest | 0.0635 | 0.090 | 0.135 |
 | XGBoost | 0.0556 | 0.082 | 0.112 |
 
-The progression linear → polynomial → RF → XGBoost demonstrates monotonic improvement
-as model capacity increases. The largest single jump is linear → polynomial (−43.8%),
-capturing the smile's quadratic structure. RF → XGBoost yields a further −12.4%,
-with boosting's sequential correction refining the surface fit.
+The tree-based models (RF, XGBoost) remain the best performers. The MLP beats polynomial
+regression but falls short of RF, demonstrating that on small tabular datasets,
+gradient-boosted trees outperform shallow neural networks. XGBoost remains the best model.
 
 ---
 
@@ -646,12 +683,13 @@ plots/
     polynomial/      ← polynomial model diagnostics only
     rf/              ← random forest diagnostics only
     xgb/             ← XGBoost diagnostics only
+    nn/              ← neural network diagnostics only
     comparison/      ← reserved for cross-model comparison (next step)
 ```
 
 ### Next step
 
-Options for further work: (1) add per-ticker features to capture cross-asset IV level
-differences explicitly, (2) neural network for continuous surface interpolation,
-(3) cross-model comparison script with unified plots, or (4) reconstruction test —
-feed predicted IV into Black–Scholes and compare repriced options to market prices.
+Options for further work: (1) cross-model comparison script with unified plots,
+(2) reconstruction test — feed predicted IV into Black–Scholes and compare repriced
+options to market prices, (3) add per-ticker features to capture cross-asset IV
+differences, or (4) deeper NN architectures or regularization tuning.
