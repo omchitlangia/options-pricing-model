@@ -675,6 +675,56 @@ gradient-boosted trees outperform shallow neural networks. XGBoost remains the b
 
 ---
 
+### Step 8.4 — Model Comparison (`evaluation/model_comparison.py`)
+
+**Purpose:** Unified comparison of all five IV surface models trained in Steps 8.3.1–8.3.5.
+All models are recreated with identical parameters and trained on the same split
+(`test_size=0.2, random_state=42`) within a single script to guarantee consistency.
+
+**Final ranking (by MAE):**
+
+| Rank | Model | MAE | Residual Std |
+|---|---|---|---|
+| 1 | XGBoost | 0.0556 | 0.082 |
+| 2 | Random Forest | 0.0635 | 0.090 |
+| 3 | Neural Network (MLP) | 0.0743 | 0.103 |
+| 4 | Polynomial (deg 2) | 0.0901 | 0.119 |
+| 5 | Linear | 0.1602 | 0.201 |
+
+**Model progression insights:**
+
+1. **Linear → Polynomial (−43.8%):** The largest single improvement. Degree-2 terms
+   capture the smile's quadratic curvature — the fundamental nonlinearity that a
+   linear model cannot represent.
+
+2. **Polynomial → RF (−29.5%):** Tree-based partitioning handles local IV variations
+   that a global polynomial cannot, especially cross-asset level differences.
+
+3. **RF → XGBoost (−12.4%):** Sequential boosting corrects residual errors left by
+   bagging. Diminishing returns indicate the remaining error is increasingly driven
+   by missing features (e.g., per-ticker effects) rather than model capacity.
+
+4. **Neural Network:** Beats polynomial but loses to both tree models. On small tabular
+   data (n=1546), tree ensembles outperform shallow MLPs — the NN lacks sufficient
+   training signal to discover the same fine-grained structure that trees capture
+   via axis-aligned splits.
+
+**Limitations:**
+- All models use the same 4 features with no ticker-level information — cross-asset
+  IV level differences are a persistent error source.
+- The dataset (1546 rows) favors tree methods over neural networks.
+- No time-series structure is exploited; all models treat observations as i.i.d.
+
+**Plots → `plots/comparison/`**
+
+| File | Content |
+|---|---|
+| `smile_comparison.png` | All model predictions overlaid on actual IV vs moneyness |
+| `error_moneyness_comparison.png` | Error scatter for all models vs moneyness |
+| `actual_vs_pred_comparison.png` | Actual vs predicted IV for all models |
+
+---
+
 ### Plot directory structure
 
 ```
@@ -684,12 +734,12 @@ plots/
     rf/              ← random forest diagnostics only
     xgb/             ← XGBoost diagnostics only
     nn/              ← neural network diagnostics only
-    comparison/      ← reserved for cross-model comparison (next step)
+    comparison/      ← cross-model comparison plots
 ```
 
 ### Next step
 
-Options for further work: (1) cross-model comparison script with unified plots,
-(2) reconstruction test — feed predicted IV into Black–Scholes and compare repriced
-options to market prices, (3) add per-ticker features to capture cross-asset IV
-differences, or (4) deeper NN architectures or regularization tuning.
+Options for further work: (1) reconstruction test — feed predicted IV into Black–Scholes
+and compare repriced options to market prices, (2) add per-ticker features to capture
+cross-asset IV differences, (3) deeper NN architectures or regularization tuning,
+or (4) time-series aware modeling.
